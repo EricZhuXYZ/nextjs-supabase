@@ -1,0 +1,13 @@
+{
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+  "files.exclude": {
+    ".next": true,
+    "tsconfig.tsbuildinfo": true
+  },
+  "search.exclude": {
+    ".next": true,
+    "tsconfig.tsbuildinfo": true
+  }
+}
