@@ -103,7 +103,7 @@ export function GoogleOneTap({
           return;
         }
 
-        const { error } = await supabase.auth.signInWithIdToken({
+        const { data, error } = await supabase.auth.signInWithIdToken({
           provider: "google",
           token: response.credential,
           nonce,
@@ -112,6 +112,35 @@ export function GoogleOneTap({
         if (error) {
           setError(error.message);
           return;
+        }
+
+        if (data.user?.email) {
+          const userName =
+            typeof data.user.user_metadata?.name === "string" &&
+            data.user.user_metadata.name.trim()
+              ? data.user.user_metadata.name.trim()
+              : data.user.email.split("@")[0];
+
+          // 登录成功后，发送欢迎邮件（失败不影响登录）
+          try {
+            const res = await fetch("/api/email/welcome", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                email: data.user.email,
+                name: userName,
+              }),
+            });
+
+            if (!res.ok) {
+              throw new Error("欢迎邮件接口调用失败");
+            }
+          } catch (error) {
+            console.error("欢迎邮件发送失败：", error);
+            // 不 throw，不影响登录流程
+          }
         }
 
         router.replace(redirectTo);

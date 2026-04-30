@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Turnstile } from "@marsidev/react-turnstile";
 
 export function SignUpForm({
   className,
@@ -25,10 +26,17 @@ export function SignUpForm({
   const [repeatPassword, setRepeatPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const router = useRouter();
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!turnstileToken) {
+      setError("Please complete the security check");
+      return;
+    }
+
     const supabase = createClient();
     setIsLoading(true);
     setError(null);
@@ -40,14 +48,45 @@ export function SignUpForm({
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/protected`,
+          captchaToken: turnstileToken,
         },
       });
       if (error) throw error;
+
+      if (data.user?.email) {
+        const userName =
+          typeof data.user.user_metadata?.name === "string" &&
+          data.user.user_metadata.name.trim()
+            ? data.user.user_metadata.name.trim()
+            : data.user.email.split("@")[0];
+
+        // 注册成功后，发送欢迎邮件（失败不影响注册）
+        try {
+          const response = await fetch("/api/email/welcome", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email: data.user.email,
+              name: userName,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error("欢迎邮件接口调用失败");
+          }
+        } catch (error) {
+          console.error("欢迎邮件发送失败：", error);
+          // 不 throw，不影响注册流程
+        }
+      }
+
       router.push("/auth/sign-up-success");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");
@@ -99,6 +138,17 @@ export function SignUpForm({
                   required
                   value={repeatPassword}
                   onChange={(e) => setRepeatPassword(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-center py-2">
+                <Turnstile
+                  siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!}
+                  onSuccess={(token: string) => setTurnstileToken(token)}
+                  onExpire={() => setTurnstileToken(null)}
+                  onError={() => {
+                    setTurnstileToken(null);
+                    setError("Security check failed. Please refresh the page.");
+                  }}
                 />
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}

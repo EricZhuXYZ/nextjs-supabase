@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Turnstile } from "@marsidev/react-turnstile";
 
 export function LoginForm({
   className,
@@ -25,20 +26,60 @@ export function LoginForm({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!turnstileToken) {
+      setError("Please complete the security check");
+      return;
+    }
+
     const supabase = createClient();
     setIsLoading(true);
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
+        options: {
+          captchaToken: turnstileToken,
+        },
       });
       if (error) throw error;
+
+      if (data.user?.email) {
+        const userName =
+          typeof data.user.user_metadata?.name === "string" &&
+          data.user.user_metadata.name.trim()
+            ? data.user.user_metadata.name.trim()
+            : data.user.email.split("@")[0];
+
+        // 登录成功后，发送欢迎邮件（失败不影响登录）
+        try {
+          const response = await fetch("/api/email/welcome", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              email: data.user.email,
+              name: userName,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error("欢迎邮件接口调用失败");
+          }
+        } catch (error) {
+          console.error("欢迎邮件发送失败：", error);
+          // 不 throw，不影响登录流程
+        }
+      }
+
       // Update this route to redirect to an authenticated route. The user already has an active session.
       router.push("/protected");
     } catch (error: unknown) {
@@ -93,6 +134,17 @@ export function LoginForm({
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-center py-2">
+                <Turnstile
+                  siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY!}
+                  onSuccess={(token: string) => setTurnstileToken(token)}
+                  onExpire={() => setTurnstileToken(null)}
+                  onError={() => {
+                    setTurnstileToken(null);
+                    setError("Security check failed. Please refresh the page.");
+                  }}
                 />
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
